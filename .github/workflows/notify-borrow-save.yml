@@ -1,0 +1,56 @@
+name: Notify on Borrow & Save update
+
+# Emails the people listed in the NOTIFY_EMAILS secret whenever the published page changes.
+# Addresses live only in repository secrets, never in this public file.
+on:
+  push:
+    branches: [main]
+    paths: ['index.html']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send update email
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAILS: ${{ secrets.NOTIFY_EMAILS }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os, smtplib, datetime
+          from email.message import EmailMessage
+          sender = os.environ['GMAIL_ADDRESS']
+          to = [a.strip() for a in os.environ.get('NOTIFY_EMAILS', '').split(',') if a.strip()]
+          if not to:
+              raise SystemExit('NOTIFY_EMAILS secret is empty; nothing to send.')
+          owner, repo = os.environ['REPO'].split('/')
+          url = f'https://{owner.lower()}.github.io/{repo}/'
+          today = datetime.date.today().strftime('%B %-d, %Y')
+          body = (
+              f"The LA & MS Borrow & Save app was refreshed with this week's rates ({today}).\n\n"
+              f"Open it: {url}\n"
+              f"  Louisiana view: {url}#la\n"
+              f"  Mississippi view: {url}#ms\n\n"
+              "What updates each week: HELOC rates and intro offers, the prime rate, cash yields after tax "
+              "(Treasuries, money funds, muni funds), and no-fee 0% balance transfer cards.\n\n"
+              "Use the password you were given. If you ticked 'Remember me', it opens straight away.\n\n"
+              "For information only; not financial, legal or tax advice. This email is sent automatically when the rates update."
+          )
+          with smtplib.SMTP('smtp.gmail.com', 587) as s:
+              s.starttls()
+              s.login(sender, os.environ['GMAIL_APP_PASSWORD'])
+              for addr in to:          # one email per person, so recipients don't see each other's address
+                  m = EmailMessage()
+                  m['Subject'] = f'Borrow & Save rates updated: {today}'
+                  m['From'] = sender
+                  m['To'] = addr
+                  m.set_content(body)
+                  s.send_message(m)
+          print(f'Sent to {len(to)} recipient(s).')
+          PY
